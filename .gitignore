@@ -1,0 +1,39 @@
+# Build Artifacts
+target/
+backend/target/
+dist/
+frontend/dist/
+build/
+coverage/
+out/
+tmp/
+*.log
+logs/
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+.mvn/
+backend/.mvn/
+
+# Python Cache & Virtual Envs
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+
+# Environment Files & Secrets
+.env
+.env.local
+.env.development
+.env.production
+*.pem
+
+# IDE & OS Metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store

@@ -1,0 +1,93 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: proctor_db
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-proctor_db}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: proctor_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # Database connection — override via .env or environment
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/${MYSQL_DATABASE:-proctor_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USER:-root}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_ROOT_PASSWORD:-password}
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      # JWT signing secret — must be set in production (.env)
+      - APP_JWT_SECRET=${JWT_SECRET:-YW50aWdyYXZpdHlwcm9jdG9yc3lzdGVtc2VjcmV0a2V5Zm9ycHJvZHVjdGlvbnNlY3VyaXR5dG9rZW5nZW5lcmF0aW9u}
+      # SMTP email credentials — set in .env for real email delivery
+      - SPRING_MAIL_USERNAME=${SMTP_USERNAME:-}
+      - SPRING_MAIL_PASSWORD=${SMTP_PASSWORD:-}
+      # Internal AI microservice URL
+      - AI_SERVICE_URL=http://ai-service:8000
+    volumes:
+      - backend_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8080"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: proctor_ai_service
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ai_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: proctor_frontend
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  db_data:
+  backend_uploads:
+  ai_data:
+

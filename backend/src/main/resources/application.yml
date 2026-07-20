@@ -1,0 +1,86 @@
+server:
+  port: 8080
+  servlet:
+    # All REST endpoints are served under /api prefix
+    context-path: /api
+
+spring:
+  application:
+    name: ai-interview-proctor-backend
+
+  datasource:
+    # Override via SPRING_DATASOURCE_URL env var in Docker/production
+    url: jdbc:mysql://localhost:3306/proctor_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    # Override via SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD
+    username: root
+    password: password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      # "update" is safe for dev; use "validate" or Flyway in production
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+    open-in-view: false
+
+  servlet:
+    multipart:
+      # Max resume / report file upload size
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+  mail:
+    # Override SPRING_MAIL_USERNAME and SPRING_MAIL_PASSWORD via env
+    # If not configured, EmailService will fall back to logging OTPs to console
+    host: smtp.gmail.com
+    port: 587
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+# Custom JWT and Application properties
+app:
+  jwt:
+    # Override APP_JWT_SECRET env var with a strong base64 secret in production
+    # Generate: openssl rand -base64 64
+    secret: ${APP_JWT_SECRET:YW50aWdyYXZpdHlwcm9jdG9yc3lzdGVtc2VjcmV0a2V5Zm9ycHJvZHVjdGlvbnNlY3VyaXR5dG9rZW5nZW5lcmF0aW9u}
+    expiration-ms: 86400000       # 24 hours
+    refresh-expiration-ms: 604800000  # 7 days
+
+  otp:
+    # OTP codes are valid for this many minutes
+    valid-minutes: 10
+
+  upload:
+    # File storage roots — mounted as a Docker volume in production
+    dir: ./uploads
+    resumes: ./uploads/resumes
+    reports: ./uploads/reports
+    screenshots: ./uploads/screenshots
+
+  # Internal URL for the FastAPI AI microservice (used for future server-side calls)
+  ai-service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+
+# API Documentation — Swagger UI
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    # Access at: http://localhost:8080/api/swagger-ui/index.html
+    path: /swagger-ui/index.html
+    operationsSorter: method
+
+logging:
+  level:
+    org.springframework.security: INFO
+    com.proctor: DEBUG

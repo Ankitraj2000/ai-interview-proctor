@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment — installed inside the image via requirements.txt
+venv/
+env/
+.venv/
+
+# Test suite — not needed in production image
+tests/
+conftest.py
+pytest.ini
+.pytest_cache/
+
+# Editor and OS files
+.env
+.env.*
+.DS_Store
+*.swp
+*.swo
+
+# Downloaded model weights (mounted at runtime or baked per requirements)
+*.pt
