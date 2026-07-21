@@ -19,18 +19,22 @@ class ObjectProctorService:
 
     def analyze_frame(self, image_bgr):
         if self.model is None:
+            logger.warning("YOLOv8 object detector model is not initialized (Dummy mode active). Phone detection unavailable.")
             return {
                 "phone_detected": False,
+                "book_detected": False,
+                "laptop_detected": False,
                 "multiple_people": False,
+                "person_count": 0,
                 "objects_detected": []
             }
 
-        # Run YOLOv8 prediction
+        # Run YOLOv8 prediction with 0.25 confidence threshold for sensitive detection
         results = self.model.predict(
             source=image_bgr,
             verbose=False,
             device="cpu",
-            conf=0.35
+            conf=0.25
         )
         
         phone_detected = False

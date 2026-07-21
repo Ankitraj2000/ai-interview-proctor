@@ -69,11 +69,19 @@ const InterviewRoom = () => {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Ref map for strike cooldown per violation type (3 seconds per violation category)
+  const lastViolationMapRef = useRef({});
+
   // Centralized Violation Trigger & Strike Count Enforcer
   const triggerViolation = async (type, message) => {
     if (!session || suspended) return;
 
-    const newViolation = { id: Date.now(), type, details: message, time: new Date().toLocaleTimeString() };
+    const now = Date.now();
+    const lastTime = lastViolationMapRef.current[type] || 0;
+    if (now - lastTime < 3000) return; // 3 seconds cooldown per specific violation type
+    lastViolationMapRef.current[type] = now;
+
+    const newViolation = { id: now, type, details: message, time: new Date().toLocaleTimeString() };
     setViolations(prev => [newViolation, ...prev]);
 
     setWarningType(type);
@@ -152,6 +160,7 @@ const InterviewRoom = () => {
   };
 
   const {
+    stream,
     videoRef,
     canvasRef,
     wsConnected,
@@ -160,6 +169,14 @@ const InterviewRoom = () => {
     startProctoring,
     stopProctoring
   } = useWebRTC(handleTelemetry);
+
+  // Auto-sync videoRef stream object when entering test room
+  useEffect(() => {
+    if (videoRef.current && stream && videoRef.current.srcObject !== stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(err => console.warn("Video stream play failed:", err));
+    }
+  }, [inTestRoom, stream]);
 
   // Load Interview Configuration
   useEffect(() => {
@@ -174,35 +191,50 @@ const InterviewRoom = () => {
       setInterview(data);
       setTimeLeft((data.durationMinutes || 30) * 60);
 
-      // Load questions from question set or generate fallback items
-      if (data.questions && data.questions.length > 0) {
-        setQuestions(data.questions);
+      // Load questions from question set or API
+      let loadedQuestions = data.questions;
+      if (!loadedQuestions || loadedQuestions.length === 0) {
+        try {
+          const qRes = await api.get(`/interviews/${data.id}/questions`);
+          loadedQuestions = qRes.data;
+        } catch (e) {
+          console.warn("Could not load dynamic questions endpoint:", e);
+        }
+      }
+
+      if (loadedQuestions && loadedQuestions.length > 0) {
+        setQuestions(loadedQuestions);
       } else {
+        // Seed DB Question Fallbacks (Real DB IDs: 4, 5, 7)
         setQuestions([
           {
-            id: 101,
-            text: 'Which data structure operates on a First-In, First-Out (FIFO) basis?',
+            id: 4,
+            text: 'What is the average time complexity of searching in a balanced binary search tree?',
             type: 'MCQ',
-            options: ['Stack', 'Queue', 'Binary Tree', 'Graph'],
-            correctAnswer: 'Queue'
+            options: ['O(1)', 'O(log n)', 'O(n)', 'O(n log n)'],
+            correctAnswer: 'O(log n)',
+            marks: 5
           },
           {
-            id: 102,
-            text: 'Write a program to reverse a string and check for palindrome property.',
+            id: 5,
+            text: 'Which of the following is NOT one of the 5 SOLID principles?',
+            type: 'MCQ',
+            options: ['Single Responsibility', 'Open Closed', 'Interface Segregation', 'Multiple Inheritance'],
+            correctAnswer: 'Multiple Inheritance',
+            marks: 5
+          },
+          {
+            id: 7,
+            text: 'Write a function `reverse_array(arr)` that returns the reversed array without using built-in `.reverse()`.',
             type: 'CODING',
-            language: 'python'
-          },
-          {
-            id: 103,
-            text: 'Explain the difference between optimistic locking and pessimistic locking in relational databases.',
-            type: 'ESSAY'
+            language: 'python',
+            marks: 15
           }
         ]);
       }
     } catch (err) {
       console.error("Failed to load interview config:", err);
-      alert("Invalid interview code or failed connection.");
-      navigate('/candidate');
+      alert("Error loading assessment: " + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
     }
@@ -239,15 +271,28 @@ const InterviewRoom = () => {
     try {
       setLoading(true);
 
-      const sessionRes = await api.post(`/sessions/start/${interview.id}`);
-      setSession(sessionRes.data);
+      let currentSession = session;
+      const savedSessionStr = localStorage.getItem(`session_${interview.id}`);
+      if (savedSessionStr && !currentSession) {
+        try {
+          currentSession = JSON.parse(savedSessionStr);
+          setSession(currentSession);
+        } catch {}
+      }
+
+      if (!currentSession) {
+        const sessionRes = await api.post(`/sessions/start/${interview.id}`);
+        currentSession = sessionRes.data;
+        setSession(currentSession);
+        localStorage.setItem(`session_${interview.id}`, JSON.stringify(currentSession));
+      }
 
       if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen();
+        document.documentElement.requestFullscreen().catch(() => {});
       }
 
       await startCamera();
-      await startProctoring(sessionRes.data.id);
+      await startProctoring(currentSession.id);
 
       setInTestRoom(true);
       setIsFullscreen(true);
@@ -286,20 +331,22 @@ const InterviewRoom = () => {
     return () => clearInterval(autoSaveInterval);
   }, [inTestRoom, answers, suspended]);
 
-  const saveProgress = async () => {
-    localStorage.setItem(`interview_${code}_answers`, JSON.stringify(answers));
+  const saveProgress = async (overrideAns) => {
+    const currentAns = overrideAns !== undefined ? overrideAns : answers[currentIdx];
+    const updatedAnswers = { ...answers, [currentIdx]: currentAns };
+    localStorage.setItem(`interview_${code}_answers`, JSON.stringify(updatedAnswers));
     setAutoSavedTime(new Date().toLocaleTimeString());
 
-    if (session && currentQ && currentQ.id) {
+    if (session && currentQ && currentQ.id && currentAns !== undefined && currentAns !== null) {
       try {
         const payload = {
           sessionId: session.id,
           interviewId: interview.id,
           questionId: currentQ.id,
           candidateId: user.id,
-          responseText: ['SUBJECTIVE', 'ESSAY'].includes(currentQ.type) ? answers[currentIdx] : null,
-          selectedOptions: currentQ.type === 'MCQ' ? answers[currentIdx] : null,
-          submittedCode: ['CODING', 'SQL', 'DEBUGGING'].includes(currentQ.type) ? answers[currentIdx] : null,
+          responseText: ['SUBJECTIVE', 'ESSAY'].includes(currentQ.type) ? currentAns : null,
+          selectedOptions: currentQ.type === 'MCQ' ? currentAns : null,
+          submittedCode: ['CODING', 'SQL', 'DEBUGGING'].includes(currentQ.type) ? currentAns : null,
           programmingLanguage: currentQ.type === 'CODING' ? (currentQ.language || 'python') : null
         };
         await api.post('/evaluations/responses', payload);
@@ -328,7 +375,10 @@ const InterviewRoom = () => {
     };
 
     const handleBlur = () => {
-      triggerViolation('WINDOW_BLUR', 'Window lost active focus.');
+      // TAB_SWITCH handles tab minimization. Only trigger WINDOW_BLUR if document remains visible
+      if (!document.hidden) {
+        triggerViolation('WINDOW_BLUR', 'Window lost active focus.');
+      }
     };
 
     const handleContextMenu = (e) => e.preventDefault();
@@ -384,19 +434,43 @@ const InterviewRoom = () => {
     try {
       setSubmitting(true);
       if (session) {
-        // Calculate auto-grade evaluation score in database!
+        // 1. Sync all candidate answers to database before calculation
+        for (let i = 0; i < questions.length; i++) {
+          const q = questions[i];
+          const ans = answers[i];
+          if (q && q.id && ans !== undefined && ans !== null && ans !== '') {
+            try {
+              await api.post('/evaluations/responses', {
+                sessionId: session.id,
+                interviewId: interview.id,
+                questionId: q.id,
+                candidateId: user.id,
+                responseText: ['SUBJECTIVE', 'ESSAY'].includes(q.type) ? ans : null,
+                selectedOptions: q.type === 'MCQ' ? ans : null,
+                submittedCode: ['CODING', 'SQL', 'DEBUGGING'].includes(q.type) ? ans : null,
+                programmingLanguage: q.type === 'CODING' ? (q.language || 'python') : null
+              });
+            } catch (e) {
+              console.warn("Error syncing response for question " + q.id, e);
+            }
+          }
+        }
+
+        // 2. Calculate auto-grade evaluation score in database!
         try {
           await api.post(`/evaluations/calculate/session/${session.id}?candidateId=${user.id}`);
         } catch (e) {
           console.error("Evaluation calculation failed:", e);
         }
+
+        // 3. Submit session & auto-compile report
         await api.post(`/sessions/${session.id}/submit`);
       }
       stopProctoring();
       stopCamera();
 
       if (document.exitFullscreen) {
-        document.exitFullscreen();
+        document.exitFullscreen().catch(() => {});
       }
 
       alert("Assessment submitted successfully! Redirecting to report summary...");
@@ -682,6 +756,20 @@ const InterviewRoom = () => {
         <div className="bg-rose-600 text-white font-bold text-xs py-2 text-center flex items-center justify-center gap-2 animate-bounce">
           <Wifi className="h-4 w-4" />
           <span>Internet Disconnected. Assessment paused locally — answers will sync automatically when reconnected.</span>
+        </div>
+      )}
+
+      {/* AI Telemetry Disconnected Warning Banner */}
+      {inTestRoom && !wsConnected && !suspended && (
+        <div className="bg-rose-950 border-b border-rose-500/40 text-rose-200 font-bold text-xs py-2 text-center flex items-center justify-center gap-2 animate-pulse">
+          <AlertTriangle className="h-4 w-4 text-rose-400" />
+          <span>⚠️ AI Proctoring Connection Lost! Video stream telemetry is offline. Please check AI service status.</span>
+          <button
+            onClick={() => session && startProctoring(session.id)}
+            className="ml-2 px-2.5 py-0.5 rounded bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-semibold"
+          >
+            Reconnect AI
+          </button>
         </div>
       )}
 

@@ -34,6 +34,9 @@ public class SessionService {
     @Autowired
     private ProctorMapper mapper;
 
+    @Autowired
+    private ReportService reportService;
+
     public java.util.Map<String, Object> executeCode(String language, String code) {
         java.util.Map<String, Object> result = new java.util.HashMap<>();
         boolean passed = code != null && !code.trim().isEmpty() && !code.contains("SyntaxError");
@@ -165,6 +168,13 @@ public class SessionService {
         Interview interview = session.getInterview();
         interview.setStatus("COMPLETED");
         interviewRepository.save(interview);
+
+        // Auto-compile candidate report on session submission
+        try {
+            reportService.generateReport(sessionId);
+        } catch (Exception e) {
+            System.err.println("Auto-generating report on submission warning: " + e.getMessage());
+        }
 
         return mapper.toDto(savedSession);
     }

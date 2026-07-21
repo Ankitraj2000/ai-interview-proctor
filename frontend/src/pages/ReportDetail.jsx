@@ -37,20 +37,34 @@ const ReportDetail = () => {
     try {
       setLoading(true);
       
-      // 1. Fetch Report
-      const repRes = await api.get(`/reports/session/${sessionId}`);
-      setReport(repRes.data);
+      // 1. Fetch Report (auto-generate if missing)
+      try {
+        const repRes = await api.get(`/reports/session/${sessionId}`);
+        setReport(repRes.data);
+      } catch (err) {
+        console.log("Report not found, generating report for session:", sessionId);
+        try {
+          const genRes = await api.post(`/reports/generate/${sessionId}`);
+          setReport(genRes.data);
+        } catch (genErr) {
+          console.warn("Failed to generate report:", genErr);
+        }
+      }
 
       // 2. Fetch Session info
-      const sesRes = await api.get(`/sessions/${sessionId}`);
-      setSession(sesRes.data);
+      try {
+        const sesRes = await api.get(`/sessions/${sessionId}`);
+        setSession(sesRes.data);
+      } catch (sesErr) {
+        console.warn("Failed to fetch session details:", sesErr);
+      }
 
       // 3. Fetch logs
-      const logsRes = await api.get(`/sessions/${sessionId}/cheating-logs`);
+      const logsRes = await api.get(`/sessions/${sessionId}/cheating-logs`).catch(() => ({ data: [] }));
       setCheatingLogs(logsRes.data || []);
 
       // 4. Fetch AI events
-      const eventsRes = await api.get(`/sessions/${sessionId}/ai-events`);
+      const eventsRes = await api.get(`/sessions/${sessionId}/ai-events`).catch(() => ({ data: [] }));
       setAiEvents(eventsRes.data || []);
 
     } catch (err) {
@@ -95,6 +109,7 @@ const ReportDetail = () => {
   // Compile unified timeline of events ordered by timestamp
   const getTimelineEvents = () => {
     const events = [];
+    if (!session) return events;
     
     // Add baseline candidate start event
     if (session.startedAt) {
@@ -107,26 +122,30 @@ const ReportDetail = () => {
       });
     }
 
-    cheatingLogs.forEach(l => {
-      events.push({
-        type: 'BROWSER',
-        name: l.logType.replace(/_/g, ' '),
-        details: l.message,
-        timestamp: new Date(l.timestamp),
-        severity: l.severity
-      });
+    (cheatingLogs || []).forEach(l => {
+      if (l && l.timestamp) {
+        events.push({
+          type: 'BROWSER',
+          name: (l.logType || l.violationType || 'Violation').replace(/_/g, ' '),
+          details: l.message || l.details || 'Browser security violation',
+          timestamp: new Date(l.timestamp),
+          severity: l.severity || 'HIGH'
+        });
+      }
     });
 
-    aiEvents.forEach(e => {
-      events.push({
-        id: e.id,
-        type: 'AI',
-        name: e.eventType.replace(/_/g, ' '),
-        details: `AI vision telemetry detected anomaly with confidence: ${(e.confidence * 100).toFixed(0)}%.`,
-        timestamp: new Date(e.timestamp),
-        severity: 'HIGH',
-        screenshotPath: e.screenshotPath
-      });
+    (aiEvents || []).forEach(e => {
+      if (e && e.timestamp) {
+        events.push({
+          id: e.id,
+          type: 'AI',
+          name: (e.eventType || 'AI_EVENT').replace(/_/g, ' '),
+          details: `AI vision telemetry detected anomaly.`,
+          timestamp: new Date(e.timestamp),
+          severity: 'HIGH',
+          screenshotPath: e.screenshotPath
+        });
+      }
     });
 
     if (session.endedAt) {
@@ -142,11 +161,9 @@ const ReportDetail = () => {
     return events.sort((a, b) => a.timestamp - b.timestamp);
   };
 
-  const timeline = getTimelineEvents();
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-brand-500">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-500" />
       </div>
     );
@@ -154,18 +171,20 @@ const ReportDetail = () => {
 
   if (!report || !session) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-dark-900 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center">
         <Navbar />
         <div className="text-center py-12 text-slate-400">
-          <HelpCircle className="h-12 w-12 mx-auto stroke-[1.5] mb-3" />
-          <p className="text-sm font-semibold">Report data not compiled or not found.</p>
-          <button onClick={() => navigate(-1)} className="mt-4 text-brand-500 text-xs font-semibold flex items-center gap-1.5 justify-center mx-auto">
-            <ArrowLeft className="h-4 w-4" /> Go Back
+          <HelpCircle className="h-12 w-12 mx-auto stroke-[1.5] mb-3 text-slate-500" />
+          <p className="text-sm font-semibold">Report data not compiled or not found for session {sessionId}.</p>
+          <button onClick={() => navigate('/candidate')} className="mt-4 text-brand-500 text-xs font-semibold flex items-center gap-1.5 justify-center mx-auto hover:underline">
+            <ArrowLeft className="h-4 w-4" /> Go Back to Dashboard
           </button>
         </div>
       </div>
     );
   }
+
+  const timeline = getTimelineEvents();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between">

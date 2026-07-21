@@ -170,6 +170,7 @@ public class InterviewService {
             dto.setScheduledEnd(schedule.getScheduledEnd());
             dto.setTimezone(schedule.getTimezone());
         });
+        dto.setQuestions(getInterviewQuestions(interview.getId()));
         return dto;
     }
 

@@ -33,4 +33,5 @@ public class InterviewDto {
     private Boolean enableBrowserLock;
     private Boolean enableWebcam;
     private Boolean enableMicrophone;
+    private java.util.List<com.proctor.entity.Question> questions;
 }

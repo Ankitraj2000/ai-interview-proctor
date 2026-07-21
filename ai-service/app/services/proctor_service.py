@@ -46,10 +46,11 @@ class ProctorService:
         cheating_score = 0.0
         events = []
 
-        # A. Camera Blocked / Covered / Black Screen Detection
+        # A. Camera Blocked / Covered / Black Screen Detection (Shutter closed or lens covered)
         avg_brightness = float(np.mean(image))
-        if avg_brightness < 12.0:
-            cheating_score += 50.0
+        is_camera_blocked = avg_brightness < 45.0 or (avg_brightness < 55.0 and face_result["faces_detected"] == 0)
+        if is_camera_blocked:
+            cheating_score += 60.0
             events.append("CAMERA_BLOCKED")
 
         # B. Camera Frozen Detection
@@ -92,10 +93,11 @@ class ProctorService:
                     events.append("STATIC_IMAGE_ATTACK")
 
         # D. Standard Vision / Object Penalties
-        # No face detected
+        # No face detected (only if camera is not already blocked)
         if face_result["faces_detected"] == 0:
             cheating_score += 40.0
-            events.append("FACE_MISSING")
+            if not is_camera_blocked:
+                events.append("FACE_MISSING")
         # Multiple faces
         elif face_result["multiple_faces"] or object_result["multiple_people"]:
             cheating_score += 60.0

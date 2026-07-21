@@ -27,8 +27,8 @@ public class ReportController {
     private ReportService reportService;
 
     @PostMapping("/generate/{sessionId}")
-    @PreAuthorize("hasRole('INTERVIEWER') or hasRole('ADMIN')")
-    @Operation(summary = "Generate/Compile candidate score evaluation summary report (Interviewer/Admin only)")
+    @PreAuthorize("hasRole('CANDIDATE') or hasRole('INTERVIEWER') or hasRole('ADMIN')")
+    @Operation(summary = "Generate/Compile candidate score evaluation summary report")
     public ResponseEntity<ReportDto> generateReport(@PathVariable Long sessionId) {
         ReportDto report = reportService.generateReport(sessionId);
         return ResponseEntity.ok(report);

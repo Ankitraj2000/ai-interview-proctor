@@ -117,9 +117,12 @@ export const useWebRTC = (onTelemetry) => {
     }
   };
 
+  const sessionIdRef = useRef(null);
+
   // Start sending frame streams over WebSocket
   const startProctoring = (sessionId) => {
     if (isProctoring) return;
+    sessionIdRef.current = sessionId;
     
     setIsProctoring(true);
     // Derive WebSocket URL from current window location so it works in both
@@ -157,6 +160,17 @@ export const useWebRTC = (onTelemetry) => {
       setWsConnected(false);
       setIsProctoring(false);
       clearInterval(intervalRef.current);
+
+      // Auto-reconnect if session is active
+      const activeSession = sessionIdRef.current;
+      if (activeSession) {
+        setTimeout(() => {
+          if (sessionIdRef.current === activeSession) {
+            console.log("Auto-reconnecting WebSocket for session:", activeSession);
+            startProctoring(activeSession);
+          }
+        }, 1500);
+      }
     };
 
     // Frame capture interval: Every 500ms (2 FPS)
@@ -168,16 +182,22 @@ export const useWebRTC = (onTelemetry) => {
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
 
-      // Sync canvas dimensions
+      // Auto-recover video.srcObject if unattached
+      if (stream && video.srcObject !== stream) {
+        video.srcObject = stream;
+        video.play().catch(() => {});
+      }
+
+      // Sync canvas dimensions (640x480 for accurate YOLO object & face recognition)
       if (video.videoWidth) {
-        canvas.width = 320; // Downscale frame to 320x240 for fast upload latency
-        canvas.height = 240;
+        canvas.width = 640;
+        canvas.height = 480;
         
         // Draw frame from HTML5 video element
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Compress frame to JPEG format (0.6 quality)
-        const base64Image = canvas.toDataURL('image/jpeg', 0.6);
+        // Compress frame to JPEG format (0.8 quality for clear object detection)
+        const base64Image = canvas.toDataURL('image/jpeg', 0.8);
         
         // Fetch cached audio chunks
         const base64Audio = wsRef.current.latestAudio || null;
@@ -195,6 +215,7 @@ export const useWebRTC = (onTelemetry) => {
 
   // Stop WebSocket proctoring feed
   const stopProctoring = () => {
+    sessionIdRef.current = null;
     setIsProctoring(false);
     clearInterval(intervalRef.current);
     
@@ -212,6 +233,14 @@ export const useWebRTC = (onTelemetry) => {
     }
     setWsConnected(false);
   };
+
+  // Ensure video element srcObject is updated whenever stream is active or video element mounts
+  useEffect(() => {
+    if (videoRef.current && stream && videoRef.current.srcObject !== stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(err => console.warn("Video play error:", err));
+    }
+  }, [stream]);
 
   // Cleanup on unmount
   useEffect(() => {

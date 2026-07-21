@@ -279,10 +279,28 @@ public class ReportService {
         }
         
         double technical = coding + sqlScore + debugging;
-        double communication = subjective > 0 ? subjective : 85.0;
+        double communication = subjective > 0 ? subjective : 0.0;
         
         EvaluationResult evalResult = evaluationResultRepository.findBySessionId(session.getId()).orElse(null);
-        double overall = evalResult != null ? evalResult.getTotalScore() : report.getFinalScore();
+        double earnedMarks = 0.0;
+        double maxMarks = 0.0;
+        
+        if (evalResult != null && evalResult.getMaxScore() != null && evalResult.getMaxScore() > 0) {
+            earnedMarks = evalResult.getTotalScore() != null ? evalResult.getTotalScore() : 0.0;
+            maxMarks = evalResult.getMaxScore();
+        } else {
+            earnedMarks = mcq + coding + subjective + sqlScore + debugging;
+            for (CandidateResponse r : responses) {
+                if (r.getQuestion() != null && r.getQuestion().getMarks() != null) {
+                    maxMarks += r.getQuestion().getMarks();
+                } else {
+                    maxMarks += 10.0;
+                }
+            }
+            if (maxMarks == 0.0) maxMarks = 100.0;
+        }
+        
+        double academicOverallPercentage = Math.max(0.0, Math.min(100.0, Math.round((earnedMarks / maxMarks) * 100.0 * 10.0) / 10.0));
         
         dto.setMcqScore(mcq);
         dto.setCodingScore(coding);
@@ -291,7 +309,8 @@ public class ReportService {
         dto.setDebuggingScore(debugging);
         dto.setTechnicalScore(technical);
         dto.setCommunicationScore(communication);
-        dto.setOverallScore(overall);
+        dto.setOverallScore(academicOverallPercentage);
+        dto.setFinalScore(academicOverallPercentage);
         
         dto.setCompanyName(report.getCompanyName() != null ? report.getCompanyName() : "Enterprise Proctoring Corp");
         dto.setJobRole(report.getJobRole() != null ? report.getJobRole() : session.getInterview().getTitle());
