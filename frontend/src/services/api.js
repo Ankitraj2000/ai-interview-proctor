@@ -1,8 +1,12 @@
 import axios from 'axios';
 
 // Base API instance targeting Spring Boot's context-path
+// const api = axios.create({
+//   baseURL: '/api',
+// });
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
 // Request interceptor: attach authorization token if present
